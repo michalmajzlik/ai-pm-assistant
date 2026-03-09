@@ -1,0 +1,28 @@
+﻿{
+  "issues": [
+    {
+      "key": "RET-6501",
+      "summary": "Add BLOCKED status to product registration approval workflow for fraud",
+      "status": "In Progress",
+      "assignee": "",
+      "chargeable": true,
+      "actual_spent": 5.5
+    },
+    {
+      "key": "RET-6500",
+      "summary": "Test of AI agent - Add BLOCKED status",
+      "status": "Blocked",
+      "assignee": "Majzlik Michal",
+      "chargeable": true,
+      "actual_spent": 2.0
+    }
+  ],
+  "releases": [
+    {
+      "name": "DRS REL-051 2026/03/12",
+      "releaseDate": "2026-03-12",
+      "released": false,
+      "archived": false
+    }
+  ]
+}
