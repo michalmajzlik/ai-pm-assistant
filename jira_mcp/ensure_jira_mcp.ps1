@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$EnvFile,
     [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
     [string]$PythonExe,
@@ -11,16 +11,27 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $EnvFile) { $EnvFile = Join-Path $scriptRoot '.env' }
 if (-not $ServerScript) { $ServerScript = Join-Path $scriptRoot 'server.py' }
 if (-not $LogFile) { $LogFile = Join-Path $scriptRoot 'jira_mcp_heartbeat.log' }
-if (-not $PythonExe) {
+
+function Resolve-Python {
     $candidates = @(
         "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
         "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
         "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
         "C:\Users\Michal\AppData\Local\Python\pythoncore-3.14-64\python.exe"
     )
+
     foreach ($c in $candidates) {
-        if (Test-Path $c) { $PythonExe = $c; break }
+        if (Test-Path $c) { return $c }
     }
+
+    $cmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
+
+    return $null
+}
+
+if (-not $PythonExe) {
+    $PythonExe = Resolve-Python
 }
 
 function Write-HeartbeatLog([string]$Message) {

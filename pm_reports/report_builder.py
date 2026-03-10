@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Generate PM reports aligned to REPORT_CONTRACT.md with optional live Jira ingestion."""
 
 from __future__ import annotations
@@ -373,7 +373,7 @@ def main() -> int:
     parser.add_argument("--meetings", type=Path)
     parser.add_argument("--calendar", type=Path)
     parser.add_argument("--emails", type=Path)
-    parser.add_argument("--contract", type=Path, default=Path("C:/Sensoneo AI/REPORT_CONTRACT.md"))
+    parser.add_argument('--contract', type=Path, default=Path(__file__).resolve().parents[1] / 'REPORT_CONTRACT.md')
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 

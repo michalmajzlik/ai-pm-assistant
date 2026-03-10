@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -32,12 +32,21 @@ Thumbs.db
 .ipynb_checkpoints/
 
 # Meeting working data (local only)
-Meetings/VTT/
-Meetings/summaries/
-Meetings/processed/
-Meetings/failed/
-Meetings/run_reports/
+Meetings/VTT/*
+!Meetings/VTT/.gitkeep
+Meetings/summaries/*
+!Meetings/summaries/.gitkeep
+Meetings/processed/*
+!Meetings/processed/.gitkeep
+Meetings/failed/*
+!Meetings/failed/.gitkeep
+Meetings/run_reports/*
+!Meetings/run_reports/.gitkeep
 Meetings/incoming_test/
 Meetings/processed_test/
 Meetings/VTT_test/
 Meetings/processor.log
+
+# Local/generated outputs
+outputs/*_smoketest.md
+outputs/*_live_try.md
