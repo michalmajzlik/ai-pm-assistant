@@ -1,0 +1,6 @@
+interface:
+  display_name: "Meeting Processor"
+  short_description: "Summarize meetings into actions, decisions, risks, Jira tasks"
+  icon_small: "./assets/meeting-processor-small.svg"
+  icon_large: "./assets/meeting-processor.png"
+  default_prompt: "Process this meeting transcript and return structured markdown with summary, action items, decisions, risks, and Jira task suggestions. If long, split into sections first."
