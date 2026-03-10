@@ -30,3 +30,14 @@ Thumbs.db
 .vscode/
 .idea/
 .ipynb_checkpoints/
+
+# Meeting working data (local only)
+Meetings/VTT/
+Meetings/summaries/
+Meetings/processed/
+Meetings/failed/
+Meetings/run_reports/
+Meetings/incoming_test/
+Meetings/processed_test/
+Meetings/VTT_test/
+Meetings/processor.log
