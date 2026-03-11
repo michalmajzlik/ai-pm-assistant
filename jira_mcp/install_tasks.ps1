@@ -10,7 +10,7 @@ $serverSrc = Join-Path $root 'server.py'
 if (-not (Test-Path $ensureSrc)) { throw "Missing $ensureSrc" }
 if (-not (Test-Path $serverSrc)) { throw "Missing $serverSrc" }
 
-$appDir = Join-Path $env:APPDATA 'SensoneoAI'
+$appDir = Join-Path $env:APPDATA 'AIPMAssistant'
 $ensureDst = Join-Path $appDir 'ensure_jira_mcp.ps1'
 $serverDst = Join-Path $appDir 'server.py'
 $startupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
@@ -57,3 +57,4 @@ if ($RunNow) {
 Write-Host "Installed autostart startup item: $startupVbs"
 Write-Host "Installed heartbeat task: $taskHeartbeat"
 Write-Host "AppData runtime dir: $appDir"
+

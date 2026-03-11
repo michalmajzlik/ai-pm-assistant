@@ -2,8 +2,8 @@
     [string]$BaseUrl,
     [string]$Email,
     [switch]$UseBearer,
-    [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
-    [string]$ConfigFile = "$env:APPDATA\SensoneoAI\jira_context.json"
+    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
+    [string]$ConfigFile = "$env:APPDATA\AIPMAssistant\jira_context.json"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,3 +65,4 @@ if ($UseBearer) {
 
 Write-Host "Saved encrypted Jira credentials to: $SecretFile"
 Write-Host "Next run: powershell -ExecutionPolicy Bypass -File '.\\jira_mcp\\run_jira_mcp.ps1'"
+

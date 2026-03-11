@@ -22,8 +22,8 @@ powershell -ExecutionPolicy Bypass -File .\jira_mcp\install_tasks.ps1 -RunNow
 ```
 
 ## Token and config storage
-- Jira secret (encrypted, local only): `%APPDATA%\SensoneoAI\jira_secret.xml`
-- Jira context (non-secret, local only): `%APPDATA%\SensoneoAI\jira_context.json`
+- Jira secret (encrypted, local only): `%APPDATA%\AIPMAssistant\jira_secret.xml`
+- Jira context (non-secret, local only): `%APPDATA%\AIPMAssistant\jira_context.json`
 
 ## Manual run
 
@@ -36,3 +36,4 @@ powershell -ExecutionPolicy Bypass -File .\jira_mcp\run_jira_mcp.ps1
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\jira_mcp\uninstall_tasks.ps1
 ```
+

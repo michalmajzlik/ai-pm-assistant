@@ -1,6 +1,6 @@
 ﻿param(
     [string]$EnvFile,
-    [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
+    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
     [string]$PythonExe,
     [string]$ServerScript,
     [string]$LogFile
@@ -112,5 +112,6 @@ if ($null -ne $started) {
 
 Write-HeartbeatLog "ERROR failed to start process"
 exit 1
+
 
 

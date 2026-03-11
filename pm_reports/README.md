@@ -27,9 +27,9 @@ powershell -ExecutionPolicy Bypass -File .\pm_reports\run_report.ps1 -ReportType
 ```
 
 The script loads from:
-- Jira context: `%APPDATA%\SensoneoAI\jira_context.json`
-- Jira credentials: `%APPDATA%\SensoneoAI\jira_secret.xml`
-- Project context: `%APPDATA%\SensoneoAI\project_report_config.json`
+- Jira context: `%APPDATA%\AIPMAssistant\jira_context.json`
+- Jira credentials: `%APPDATA%\AIPMAssistant\jira_secret.xml`
+- Project context: `%APPDATA%\AIPMAssistant\project_report_config.json`
 
 ## Direct CLI usage
 
@@ -49,3 +49,4 @@ The script loads from:
 - Inferred statements are explicitly labeled `(Inference)`.
 - Billing v1 uses `Chargeable=True` and `Actual spent` if available.
 - Capacity v1 is MD-oriented and ready for Tempo integration.
+

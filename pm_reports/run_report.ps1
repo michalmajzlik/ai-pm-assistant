@@ -6,8 +6,8 @@
     [string]$Project,
     [string]$ProjectKey,
     [string]$OutputPath,
-    [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
-    [string]$ProjectConfigFile = "$env:APPDATA\SensoneoAI\project_report_config.json"
+    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
+    [string]$ProjectConfigFile = "$env:APPDATA\AIPMAssistant\project_report_config.json"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,5 +62,6 @@ if (-not $python) {
 
 & $python (Join-Path $root 'report_builder.py') --report-type $ReportType --project $Project --project-key $ProjectKey --live-jira --output $OutputPath
 Write-Host "Generated: $OutputPath"
+
 
 

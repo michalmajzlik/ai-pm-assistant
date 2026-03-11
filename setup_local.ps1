@@ -85,3 +85,4 @@ Write-Host "3) Jira MCP autostart: powershell -ExecutionPolicy Bypass -File '$re
 Write-Host "4) Project context: powershell -ExecutionPolicy Bypass -File '$repoRoot\pm_reports\setup_project_context.ps1' -Project '<project-name>' -ProjectKey '<project-key>'"
 Write-Host "5) Daily report: powershell -ExecutionPolicy Bypass -File '$repoRoot\pm_reports\run_report.ps1' -ReportType daily"
 Write-Host "6) Meetings (optional): setx OPENAI_API_KEY '<your-key>'"
+

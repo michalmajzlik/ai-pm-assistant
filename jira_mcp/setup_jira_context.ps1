@@ -5,7 +5,7 @@
     [Parameter(Mandatory=$true)]
     [string]$Email,
 
-    [string]$ConfigFile = "$env:APPDATA\SensoneoAI\jira_context.json"
+    [string]$ConfigFile = "$env:APPDATA\AIPMAssistant\jira_context.json"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,3 +21,4 @@ $config | ConvertTo-Json | Set-Content -Encoding ASCII $ConfigFile
 Write-Host "Saved Jira local config: $ConfigFile"
 Write-Host "BaseUrl: $($config.BaseUrl)"
 Write-Host "Email: $($config.Email)"
+

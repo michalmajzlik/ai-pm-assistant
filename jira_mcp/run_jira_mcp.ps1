@@ -1,6 +1,6 @@
 ﻿param(
     [string]$EnvFile,
-    [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
+    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
     [string]$PythonExe,
     [string]$ServerScript
 )
@@ -52,5 +52,6 @@ if (-not $PythonExe -or -not (Test-Path $PythonExe)) { throw "Python not found. 
 if (-not (Test-Path $ServerScript)) { throw "Server script not found: $ServerScript" }
 
 & $PythonExe $ServerScript
+
 
 
