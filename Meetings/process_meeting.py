@@ -1,4 +1,6 @@
-﻿import argparse
+﻿#!/usr/bin/env python3
+import argparse
+import json
 import logging
 import os
 import re
@@ -6,13 +8,14 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from openai import OpenAI
 
 
 BASE_DIR = Path(__file__).resolve().parent
 VTT_ROOT = BASE_DIR / "VTT"
-SUMMARY_ROOT = BASE_DIR / "summaries"
+RECORD_ROOT = BASE_DIR / "records"
 PROCESSED_ROOT = BASE_DIR / "processed"
 FAILED_ROOT = BASE_DIR / "failed"
 REPORT_ROOT = BASE_DIR / "run_reports"
@@ -54,36 +57,75 @@ def infer_meeting_date(path: Path) -> str:
     return match.group(1) if match else "Unknown"
 
 
-def build_prompt(transcript: str, meeting_date: str) -> str:
+def build_prompt(transcript: str, meeting_date: str, meeting_title: str) -> str:
     return f"""
-Convert this meeting transcript into structured markdown for execution tracking.
+Convert this meeting transcript into a single valid JSON object for execution tracking.
 
-Return EXACTLY this structure and only this structure:
+Return JSON only. No markdown. No code fences. No explanation.
 
-# Meeting Summary
-- Date: {meeting_date}
-- Participants: <list or Unknown>
-- High-level summary:
-  - <concise bullet>
-  - <concise bullet>
-- Jira Headline Suggestions:
-  - <short ticket title only>
-
-# Action Items
-| ID | Action | Owner | Due Date | Priority | Status |
-| --- | --- | --- | --- | --- | --- |
-| A1 | ... | ... | ... | High/Medium/Low | Open |
+Use exactly this schema:
+{{
+  "schema_version": "1.0",
+  "meeting_title": "{meeting_title}",
+  "meeting_date": "{meeting_date}",
+  "participants": ["Name 1"],
+  "summary": ["bullet 1", "bullet 2"],
+  "action_items": [
+    {{
+      "id": "A1",
+      "action": "text",
+      "owner": "Unknown",
+      "due_date": "Unknown",
+      "priority": "High|Medium|Low",
+      "status": "Open",
+      "needs_confirmation": false
+    }}
+  ],
+  "decisions": [
+    {{
+      "id": "D1",
+      "decision": "text",
+      "owner": "Unknown",
+      "date": "Unknown",
+      "rationale": "Unknown",
+      "needs_confirmation": false
+    }}
+  ],
+  "risks": [
+    {{
+      "id": "R1",
+      "risk": "text",
+      "impact": "High|Medium|Low|Unknown",
+      "likelihood": "High|Medium|Low|Unknown",
+      "mitigation": "Unknown",
+      "owner": "Unknown",
+      "needs_confirmation": false
+    }}
+  ],
+  "jira_candidates": [
+    {{
+      "id": "J1",
+      "summary": "short ticket title",
+      "issue_type": "Task|Story|Bug|Unknown",
+      "priority": "High|Medium|Low|Unknown",
+      "assignee": "Unknown",
+      "labels": ["meeting"],
+      "description": "short implementation-ready description"
+    }}
+  ],
+  "tags": ["tag1"]
+}}
 
 Rules:
 - Language must be English.
-- Do not include Decisions or Risks sections.
 - Use concise, factual wording.
 - Use only evidence from transcript; do not invent facts.
-- Use Unknown for missing fields.
-- Mark uncertainty as "Needs confirmation".
-- Action IDs must be sequential (A1, A2, ...).
-- Jira Headline Suggestions must be short names only (no full stories).
-- If no action items exist, keep the table and add one row with Action="None identified" and remaining fields="Unknown" except Status="Open".
+- Use "Unknown" for missing scalar values.
+- Use empty arrays when a section has no items.
+- IDs must be sequential (A1, A2 / D1, D2 / R1, R2 / J1, J2).
+- Mark uncertainty with "needs_confirmation": true.
+- Keep "summary" to 5-8 concise bullets.
+- "tags" should be short lowercase topic labels when strongly supported by the transcript.
 
 Transcript:
 {transcript}
@@ -98,12 +140,12 @@ def strip_code_fences(text: str) -> str:
     return cleaned.strip()
 
 
-def output_path_for(vtt_path: Path, vtt_root: Path, summary_root: Path) -> Path:
+def output_path_for(vtt_path: Path, vtt_root: Path, record_root: Path) -> Path:
     rel_parent = vtt_path.parent.relative_to(vtt_root)
-    out_dir = summary_root / rel_parent
+    out_dir = record_root / rel_parent
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-    return out_dir / f"{stamp}_{vtt_path.stem}.md"
+    return out_dir / f"{stamp}_{vtt_path.stem}.json"
 
 
 def move_target_for(vtt_path: Path, vtt_root: Path, target_root: Path) -> Path:
@@ -191,25 +233,43 @@ def write_run_report(
     last_report.write_text(text, encoding="utf-8")
 
 
-def process_one(path: Path, client: OpenAI, vtt_root: Path, summary_root: Path, failed_root: Path, model_hint: str | None) -> tuple[bool, str]:
+def normalize_record(raw_record: dict[str, Any], source_path: Path) -> dict[str, Any]:
+    record = dict(raw_record)
+    record["schema_version"] = str(record.get("schema_version") or "1.0")
+    record["meeting_title"] = str(record.get("meeting_title") or source_path.stem)
+    record["meeting_date"] = str(record.get("meeting_date") or infer_meeting_date(source_path))
+    record["participants"] = [str(x).strip() for x in record.get("participants", []) if str(x).strip()] or ["Unknown"]
+    record["summary"] = [str(x).strip() for x in record.get("summary", []) if str(x).strip()]
+    record["action_items"] = record.get("action_items", []) if isinstance(record.get("action_items", []), list) else []
+    record["decisions"] = record.get("decisions", []) if isinstance(record.get("decisions", []), list) else []
+    record["risks"] = record.get("risks", []) if isinstance(record.get("risks", []), list) else []
+    record["jira_candidates"] = record.get("jira_candidates", []) if isinstance(record.get("jira_candidates", []), list) else []
+    record["tags"] = [str(x).strip().lower() for x in record.get("tags", []) if str(x).strip()]
+    record["source_path"] = str(source_path)
+    record["processed_at"] = datetime.now().isoformat(timespec="seconds")
+    return record
+
+
+def process_one(path: Path, client: OpenAI, vtt_root: Path, record_root: Path, model_hint: str | None) -> tuple[bool, str]:
     transcript = read_vtt(path)
     if not transcript.strip():
         return False, f"Skipped empty transcript: {path.name}"
 
     meeting_date = infer_meeting_date(path)
-    prompt = build_prompt(transcript, meeting_date)
-    summary = call_model_with_fallback(client, prompt, model_hint)
+    prompt = build_prompt(transcript, meeting_date, path.stem)
+    response_text = call_model_with_fallback(client, prompt, model_hint)
+    record = normalize_record(json.loads(response_text), path)
 
-    out_path = output_path_for(path, vtt_root, summary_root)
-    out_path.write_text(summary + "\n", encoding="utf-8")
+    out_path = output_path_for(path, vtt_root, record_root)
+    out_path.write_text(json.dumps(record, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     return True, f"Processed {path.name} -> {out_path}"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Process current-month meeting .vtt files into markdown summaries.")
+    parser = argparse.ArgumentParser(description="Process current-month meeting .vtt files into canonical JSON meeting records.")
     parser.add_argument("--month", type=str, default=None, help="Month folder in format YYYY-MM. Default is current month.")
     parser.add_argument("--vtt-root", type=Path, default=VTT_ROOT)
-    parser.add_argument("--summary-root", type=Path, default=SUMMARY_ROOT)
+    parser.add_argument("--record-root", type=Path, default=RECORD_ROOT)
     parser.add_argument("--processed-root", type=Path, default=PROCESSED_ROOT)
     parser.add_argument("--failed-root", type=Path, default=FAILED_ROOT)
     parser.add_argument("--model", type=str, default=os.getenv("OPENAI_MODEL"), help="Preferred model. Fallback chain is automatic.")
@@ -224,7 +284,7 @@ def main() -> int:
 
     selected_month = args.month or datetime.now().strftime("%Y-%m")
     args.vtt_root.mkdir(parents=True, exist_ok=True)
-    args.summary_root.mkdir(parents=True, exist_ok=True)
+    args.record_root.mkdir(parents=True, exist_ok=True)
     args.processed_root.mkdir(parents=True, exist_ok=True)
     args.failed_root.mkdir(parents=True, exist_ok=True)
 
@@ -241,7 +301,7 @@ def main() -> int:
 
     for path in vtt_files:
         try:
-            ok, msg = process_one(path, client, args.vtt_root, args.summary_root, args.failed_root, args.model)
+            ok, msg = process_one(path, client, args.vtt_root, args.record_root, args.model)
             if ok:
                 target = move_target_for(path, args.vtt_root, args.processed_root)
                 shutil.move(str(path), str(target))

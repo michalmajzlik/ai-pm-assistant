@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Generate PM reports aligned to REPORT_CONTRACT.md with optional live Jira ingestion."""
 
 from __future__ import annotations
@@ -13,19 +13,34 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-WEEKLY_EPIC_CLOSED_CAPACITY_JQL = (
-    'project = {project_key} and issuetype = Epic and status = Closed '
-    'and status CHANGED TO Closed AFTER -90d ORDER BY updated DESC'
-)
+DEFAULT_MEETINGS_PATH = Path(__file__).resolve().parents[1] / "Meetings" / "records"
 
 
-
-def load_json(path: Path | None) -> dict[str, Any]:
+def load_json_file(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
     with path.open("r", encoding="utf-8-sig") as f:
         data = json.load(f)
     return data if isinstance(data, dict) else {"items": data}
+
+
+def load_json(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    if path.is_dir():
+        items: list[dict[str, Any]] = []
+        for file_path in sorted(path.rglob("*.json")):
+            payload = load_json_file(file_path)
+            if not payload:
+                continue
+            if isinstance(payload.get("items"), list):
+                for item in payload["items"]:
+                    if isinstance(item, dict):
+                        items.append(item)
+            else:
+                items.append(payload)
+        return {"items": items}
+    return load_json_file(path)
 
 
 def parse_iso_date(value: str | None) -> datetime | None:
@@ -34,7 +49,6 @@ def parse_iso_date(value: str | None) -> datetime | None:
     value = value.strip()
     if not value:
         return None
-    # Jira often returns +0100 without colon
     if len(value) > 5 and (value[-5] in ["+", "-"]) and value[-3] != ":":
         value = value[:-2] + ":" + value[-2:]
     try:
@@ -190,7 +204,7 @@ def infer_rag(issues: list[dict[str, Any]]) -> str:
     now = datetime.now(timezone.utc)
     for i in issues:
         upd = parse_iso_date(i.get("updated"))
-        if upd and (now - upd).days >= 7 and "done" not in str(i.get("status", "")).lower():
+        if upd and (now - upd).days >= 7 and "done" not in str(i.get("status", "")).lower() and "closed" not in str(i.get("status", "")).lower():
             stale += 1
 
     if len(blocked) >= 2 or stale >= 10:
@@ -265,6 +279,7 @@ def capacity_snapshot(issues: list[dict[str, Any]]) -> str:
 
     return "\n".join(summary + ["", *rows])
 
+
 def data_quality_issues(issues: list[dict[str, Any]]) -> str:
     missing_assignee = [i.get("key", "?") for i in issues if not i.get("assignee")]
     missing_status = [i.get("key", "?") for i in issues if not i.get("status")]
@@ -278,13 +293,71 @@ def data_quality_issues(issues: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def meeting_record_date(record: dict[str, Any]) -> datetime | None:
+    return parse_iso_date(record.get("meeting_date") or record.get("date"))
+
+
+def filter_meetings_for_window(records: list[dict[str, Any]], report_type: str) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    days = 1 if report_type == "daily" else 7 if report_type == "weekly" else 30
+    out = []
+    for record in records:
+        dt = meeting_record_date(record)
+        if dt is None:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if (now - dt).days <= days:
+            out.append(record)
+    return out
+
+
+def flatten_meeting_items(records: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for record in records:
+        payload = record.get(key, [])
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    item = dict(item)
+                    item["meeting_title"] = record.get("meeting_title", "Unknown")
+                    item["meeting_date"] = record.get("meeting_date", "Unknown")
+                    items.append(item)
+    return items
+
+
+def meeting_summary_lines(records: list[dict[str, Any]], limit: int = 6) -> list[str]:
+    lines: list[str] = []
+    for record in records[:limit]:
+        title = str(record.get("meeting_title") or "Unknown meeting")
+        bullets = record.get("summary", [])
+        if isinstance(bullets, list) and bullets:
+            lines.append(f"- {title}: {bullets[0]}")
+    return lines
+
+
 def section(title: str, body: str) -> str:
     return f"## {title}\n{body.strip()}\n"
 
 
-def build_report(report_type: str, project_label: str, issues: list[dict[str, Any]], releases: list[dict[str, Any]], meetings: dict[str, Any], calendar: dict[str, Any], emails: dict[str, Any], contract_path: Path, epic_capacity_issues: list[dict[str, Any]] | None = None) -> str:
+def build_report(
+    report_type: str,
+    project_label: str,
+    issues: list[dict[str, Any]],
+    releases: list[dict[str, Any]],
+    meetings: dict[str, Any],
+    calendar: dict[str, Any],
+    emails: dict[str, Any],
+    contract_path: Path,
+    epic_capacity_issues: list[dict[str, Any]] | None = None,
+) -> str:
     rag = infer_rag(issues)
     now = date.today().isoformat()
+    meeting_records = meetings.get("items", []) if isinstance(meetings.get("items"), list) else []
+    recent_meetings = filter_meetings_for_window(meeting_records, report_type)
+    meeting_actions = flatten_meeting_items(recent_meetings, "action_items")
+    meeting_risks = flatten_meeting_items(recent_meetings, "risks")
+    meeting_decisions = flatten_meeting_items(recent_meetings, "decisions")
 
     parts = [
         f"# {report_type.title()} Report - {project_label}",
@@ -296,32 +369,34 @@ def build_report(report_type: str, project_label: str, issues: list[dict[str, An
     ]
 
     if report_type == "daily":
-        done_yesterday = [
-            i for i in issues if "done" in str(i.get("status", "")).lower() or "closed" in str(i.get("status", "")).lower()
-        ]
-        active_today = [
-            i for i in issues if any(x in str(i.get("status", "")).lower() for x in ["progress", "new", "open", "backlog", "review"])
-        ][:8]
+        done_yesterday = [i for i in issues if "done" in str(i.get("status", "")).lower() or "closed" in str(i.get("status", "")).lower()]
+        active_today = [i for i in issues if any(x in str(i.get("status", "")).lower() for x in ["progress", "new", "open", "backlog", "review"])]
         blockers = [i for i in issues if "block" in str(i.get("status", "")).lower()][:10]
 
-        parts.append(section("Yesterday completed", f"Completed/closed items in scope: {len(done_yesterday)}. Status split: {summarize_status_split(issues)}."))
-        if active_today:
-            lines = "\n".join(f"- {i.get('key')}: {i.get('summary')} ({i.get('status')})" for i in active_today)
-        else:
-            lines = "- No active tickets in provided daily scope."
-        parts.append(section("Today plan", lines))
+        yesterday_lines = [f"- Completed/closed Jira items in scope: {len(done_yesterday)}."]
+        yesterday_lines.extend(meeting_summary_lines(recent_meetings, limit=4))
+        parts.append(section("Yesterday completed", "\n".join(yesterday_lines)))
 
-        if blockers:
-            btxt = "\n".join(f"- {b.get('key')}: {b.get('summary')} ({b.get('status')})" for b in blockers)
-        else:
-            btxt = "- No explicit blocked status found in scope."
-        parts.append(section("Blockers and risks", "(Inference)\n" + btxt))
+        today_lines = [f"- {i.get('key')}: {i.get('summary')} ({i.get('status')})" for i in active_today[:8]]
+        open_actions = [a for a in meeting_actions if str(a.get("status", "Open")).lower() != "done"]
+        for item in open_actions[:5]:
+            today_lines.append(f"- Meeting follow-up: {item.get('action', 'Unknown action')} (owner: {item.get('owner', 'Unknown')})")
+        if not today_lines:
+            today_lines = ["- No active tickets in provided daily scope."]
+        parts.append(section("Today plan", "\n".join(today_lines)))
+
+        risk_lines = [f"- {b.get('key')}: {b.get('summary')} ({b.get('status')})" for b in blockers]
+        for risk in meeting_risks[:6]:
+            risk_lines.append(f"- Meeting risk: {risk.get('risk', 'Unknown')} (impact: {risk.get('impact', 'Unknown')}, owner: {risk.get('owner', 'Unknown')})")
+        if not risk_lines:
+            risk_lines = ["- No explicit blocked status or meeting risk found in scope."]
+        parts.append(section("Blockers and risks", "(Inference)\n" + "\n".join(risk_lines)))
         parts.append(section("Release status", releases_summary(releases)))
 
         actions = []
+        unassigned = [i for i in issues if not i.get("assignee")]
         if blockers:
             actions.append("- Confirm ownership and unblock plan for blocked items.")
-        unassigned = [i for i in issues if not i.get("assignee")]
         if unassigned:
             actions.append(f"- Assign owners for unassigned items: {', '.join(i.get('key', '?') for i in unassigned[:8])}.")
         if not actions:
@@ -329,38 +404,57 @@ def build_report(report_type: str, project_label: str, issues: list[dict[str, An
         parts.append(section("Client actions needed", "\n".join(actions)))
 
     elif report_type == "weekly":
-        parts.append(section("Executive summary (RAG)", f"(Inference) Weekly delivery health: **{rag}** based on blockers, stale items, and issue distribution."))
-        parts.append(section("Delivery status", f"Issue count in weekly scope: {len(issues)}. Status split: {summarize_status_split(issues)}."))
+        parts.append(section("Executive summary (RAG)", f"(Inference) Weekly delivery health: **{rag}** based on blockers, stale items, issue distribution, and {len(recent_meetings)} meeting records."))
+        delivery_lines = [f"Issue count in weekly scope: {len(issues)}. Status split: {summarize_status_split(issues)}."]
+        delivery_lines.extend(meeting_summary_lines(recent_meetings, limit=5))
+        parts.append(section("Delivery status", "\n".join(delivery_lines)))
 
         stale_lines = []
         now_dt = datetime.now(timezone.utc)
         for i in issues:
             upd = parse_iso_date(i.get("updated"))
-            if upd and (now_dt - upd).days >= 7 and "done" not in str(i.get("status", "")).lower():
+            if upd and (now_dt - upd).days >= 7 and "done" not in str(i.get("status", "")).lower() and "closed" not in str(i.get("status", "")).lower():
                 stale_lines.append(f"- {i.get('key')}: stale {(now_dt - upd).days} days ({i.get('status')})")
-        deps = "\n".join(stale_lines[:10]) if stale_lines else "- No stale open issues >= 7 days in scope."
+        for risk in meeting_risks[:6]:
+            stale_lines.append(f"- Meeting risk: {risk.get('risk', 'Unknown')} (impact: {risk.get('impact', 'Unknown')}, likelihood: {risk.get('likelihood', 'Unknown')})")
+        deps = "\n".join(stale_lines[:10]) if stale_lines else "- No stale open issues >= 7 days or explicit meeting risks in scope."
         parts.append(section("Internal issues and dependencies", deps))
 
         capacity_scope = epic_capacity_issues if epic_capacity_issues is not None else []
         parts.append(section("Capacity and workload (MD)", capacity_snapshot(capacity_scope)))
 
-        client_items = [i for i in issues if "client" in str(i.get("summary", "")).lower()]
-        client_text = "\n".join(f"- {i.get('key')}: {i.get('summary')}" for i in client_items[:8]) if client_items else "- No explicit client-tagged issues detected by summary keyword heuristic."
-        parts.append(section("Client-side issues/escalations", "(Inference)\n" + client_text))
+        client_lines = []
+        for issue in issues:
+            if "client" in str(issue.get("summary", "")).lower():
+                client_lines.append(f"- Jira: {issue.get('key')}: {issue.get('summary')}")
+        for action in meeting_actions[:6]:
+            action_text = str(action.get("action", "")).lower()
+            if any(token in action_text for token in ["client", "service request", "incident", "returo"]):
+                client_lines.append(f"- Meeting follow-up: {action.get('action')} (owner: {action.get('owner', 'Unknown')})")
+        if not client_lines:
+            client_lines.append("- No explicit client-tagged issues detected by current heuristics.")
+        parts.append(section("Client-side issues/escalations", "(Inference)\n" + "\n".join(client_lines[:10])))
 
         parts.append(section("Billing snapshot", billing_snapshot(issues)))
-        parts.append(section("Focus for next week", "- Reduce blocked/stale items.\n- Protect nearest release dates.\n- Resolve data-quality gaps for assignee and billing fields."))
+
+        focus_lines = ["- Reduce blocked/stale items.", "- Protect nearest release dates.", "- Resolve data-quality gaps for assignee and billing fields."]
+        for action in meeting_actions[:5]:
+            focus_lines.append(f"- Meeting action: {action.get('action', 'Unknown action')} (owner: {action.get('owner', 'Unknown')})")
+        parts.append(section("Focus for next week", "\n".join(focus_lines)))
 
     else:
+        decision_lines = [f"- {d.get('decision', 'Unknown decision')} (owner: {d.get('owner', 'Unknown')})" for d in meeting_decisions[:6]]
+        if not decision_lines:
+            decision_lines = ["- Confirm scope freeze or defer list for nearest release.", "- Confirm owner for top delivery risks."]
         parts.append(section("Overall project health", f"(Inference) Current health: **{rag}**."))
         parts.append(section("Timeline and milestones", releases_summary(releases)))
-        parts.append(section("Release readiness summary", "- Readiness derived from blockers, stale items, and owner coverage."))
+        parts.append(section("Release readiness summary", "- Readiness derived from blockers, stale items, owner coverage, and meeting risks."))
         parts.append(section("Budget/billing snapshot", billing_snapshot(issues)))
-        parts.append(section("Decisions required", "- Confirm scope freeze or defer list for nearest release.\n- Confirm owner for top delivery risks."))
+        parts.append(section("Decisions required", "\n".join(decision_lines)))
         parts.append(section("Next period priorities", "- Stabilize release-critical scope.\n- Reduce dependency risk."))
 
     parts.append(section("Data quality issues", data_quality_issues(issues)))
-    parts.append(section("Source notes", f"Meetings input items: {len(meetings.get('items', [])) if isinstance(meetings.get('items'), list) else 0}; calendar input items: {len(calendar.get('items', [])) if isinstance(calendar.get('items'), list) else 0}; email input items: {len(emails.get('items', [])) if isinstance(emails.get('items'), list) else 0}."))
+    parts.append(section("Source notes", f"Meetings input items: {len(meeting_records)}; calendar input items: {len(calendar.get('items', [])) if isinstance(calendar.get('items'), list) else 0}; email input items: {len(emails.get('items', [])) if isinstance(emails.get('items'), list) else 0}."))
     return "\n".join(parts)
 
 
@@ -401,6 +495,7 @@ def live_jira_dataset(report_type: str, project_key: str) -> dict[str, Any]:
 
     return {"issues": issues, "releases": releases, "epic_capacity_issues": epic_capacity_issues}
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate PM report drafts aligned to REPORT_CONTRACT.md")
     parser.add_argument("--report-type", choices=["daily", "weekly", "steering"], required=True)
@@ -408,10 +503,10 @@ def main() -> int:
     parser.add_argument("--project-key", default="<project-key>")
     parser.add_argument("--live-jira", action="store_true")
     parser.add_argument("--jira", type=Path)
-    parser.add_argument("--meetings", type=Path)
+    parser.add_argument("--meetings", type=Path, default=DEFAULT_MEETINGS_PATH)
     parser.add_argument("--calendar", type=Path)
     parser.add_argument("--emails", type=Path)
-    parser.add_argument('--contract', type=Path, default=Path(__file__).resolve().parents[1] / 'REPORT_CONTRACT.md')
+    parser.add_argument("--contract", type=Path, default=Path(__file__).resolve().parents[1] / "REPORT_CONTRACT.md")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -451,5 +546,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

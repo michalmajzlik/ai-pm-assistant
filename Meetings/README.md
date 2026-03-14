@@ -8,7 +8,7 @@ This folder contains the local meeting processing pipeline.
 
 ## Local-only working data (ignored by git)
 - VTT/ (incoming transcripts)
-- summaries/ (generated summaries)
+- records/ (generated canonical meeting JSON records)
 - processed/ (already processed transcripts)
 - failed/ (failed transcripts)
 - run_reports/ (last run and history reports)
@@ -16,8 +16,8 @@ This folder contains the local meeting processing pipeline.
 
 ## Processing rule summary
 - Input: current month folder in `VTT/YYYY-MM`
+- Canonical output: JSON only
+- Output schema: meeting metadata + summary + action_items + decisions + risks + jira_candidates + tags
 - Output language: English
-- Output sections: Meeting Summary + Action Items
-- Excluded sections: Decisions, Risks
-- Jira output: headline suggestions only
-- Uncertain items: `Needs confirmation`
+- Uncertain items: `needs_confirmation = true`
+- Markdown summaries are no longer the source of truth
