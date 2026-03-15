@@ -1,12 +1,28 @@
-﻿param(
+param(
     [string]$BaseUrl,
     [string]$Email,
     [switch]$UseBearer,
-    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
-    [string]$ConfigFile = "$env:APPDATA\AIPMAssistant\jira_context.json"
+    [string]$SecretFile,
+    [string]$ConfigFile
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $ConfigFile) {
+    $primaryConfig = Join-Path $env:APPDATA 'AIPMAssistant\jira_context.json'
+    $legacyConfig = Join-Path $env:APPDATA 'SensoneoAI\jira_context.json'
+    if (Test-Path $primaryConfig) { $ConfigFile = $primaryConfig }
+    elseif (Test-Path $legacyConfig) { $ConfigFile = $legacyConfig }
+    else { $ConfigFile = $primaryConfig }
+}
+
+if (-not $SecretFile) {
+    $primarySecret = Join-Path $env:APPDATA 'AIPMAssistant\jira_secret.xml'
+    $legacySecret = Join-Path $env:APPDATA 'SensoneoAI\jira_secret.xml'
+    if (Test-Path $primarySecret) { $SecretFile = $primarySecret }
+    elseif (Test-Path $legacySecret) { $SecretFile = $legacySecret }
+    else { $SecretFile = $primarySecret }
+}
 
 if ((-not $BaseUrl -or -not $Email) -and (Test-Path $ConfigFile)) {
     $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
@@ -65,4 +81,3 @@ if ($UseBearer) {
 
 Write-Host "Saved encrypted Jira credentials to: $SecretFile"
 Write-Host "Next run: powershell -ExecutionPolicy Bypass -File '.\\jira_mcp\\run_jira_mcp.ps1'"
-

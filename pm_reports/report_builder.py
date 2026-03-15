@@ -20,9 +20,10 @@ from project_config import (
     get_weekly_status_sections,
     load_project_config,
 )
+from runtime_paths import resolve_runtime_file
 
 DEFAULT_MEETINGS_PATH = Path(__file__).resolve().parents[1] / "Meetings" / "records"
-DEFAULT_PROJECT_CONFIG_PATH = Path(os.getenv("APPDATA", "")) / "SensoneoAI" / "project_report_config.json"
+DEFAULT_PROJECT_CONFIG_PATH = resolve_runtime_file("project_report_config.json")
 
 
 def load_json_file(path: Path | None) -> dict[str, Any]:

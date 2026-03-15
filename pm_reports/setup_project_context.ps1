@@ -14,10 +14,28 @@ param(
     [ValidateSet('software_delivery','multi_workstream','managed_service')]
     [string]$Profile = 'software_delivery',
 
-    [string]$ConfigFile = "$env:APPDATA\SensoneoAI\project_report_config.json"
+    [string]$ConfigFile
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Resolve-DefaultConfigFile {
+    $primary = Join-Path $env:APPDATA 'AIPMAssistant\project_report_config.json'
+    $legacy = Join-Path $env:APPDATA 'SensoneoAI\project_report_config.json'
+    if ((Test-Path $primary) -and (Test-Path $legacy)) {
+        $primaryItem = Get-Item $primary
+        $legacyItem = Get-Item $legacy
+        if ($primaryItem.LastWriteTimeUtc -ge $legacyItem.LastWriteTimeUtc) { return $primary }
+        return $legacy
+    }
+    if (Test-Path $primary) { return $primary }
+    if (Test-Path $legacy) { return $legacy }
+    return $primary
+}
+
+if (-not $ConfigFile) {
+    $ConfigFile = Resolve-DefaultConfigFile
+}
 
 if ($ShowProfiles) {
     Write-Host 'Available profiles:'

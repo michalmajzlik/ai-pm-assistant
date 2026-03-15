@@ -16,5 +16,5 @@ These templates define local project-specific report behavior for the generic PM
 6. Do you want to keep the default daily and steering report labels, or rename them?
 
 ## Git safety
-Actual project configs should stay local in `%APPDATA%\SensoneoAI\project_report_config.json`.
+Actual project configs should stay local in `%APPDATA%\AIPMAssistant\project_report_config.json`.
 They are intentionally not stored in the repository.

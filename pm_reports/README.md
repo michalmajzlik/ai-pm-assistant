@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File .\pm_reports\setup_project_context.ps1 
 ```
 
 Local project config is stored here and stays outside git:
-- `%APPDATA%\SensoneoAI\project_report_config.json`
+- `%APPDATA%\AIPMAssistant\project_report_config.json`
 
 ## Default profile choices
 - `software_delivery` (recommended): `Delivery`, `Scope and estimation`, `Budget`
@@ -45,15 +45,19 @@ powershell -ExecutionPolicy Bypass -File .\pm_reports\run_report.ps1 -ReportType
 ```
 
 The script loads from:
-- Jira credentials: `%APPDATA%\SensoneoAI\jira_secret.xml`
-- Project report config: `%APPDATA%\SensoneoAI\project_report_config.json`
+- Jira credentials: `%APPDATA%\AIPMAssistant\jira_secret.xml`
+- Project report config: `%APPDATA%\AIPMAssistant\project_report_config.json`
 
 If `reports.weekly.publish.enabled = true`, the weekly run also overwrites the configured Jira issue description via `reports.weekly.publish.jira_issue_key`.
+
+Compatibility note:
+- the runtime default is `%APPDATA%\AIPMAssistant\...`
+- older local files in `%APPDATA%\SensoneoAI\...` are still auto-discovered
 
 ## Direct CLI usage
 
 ```powershell
-& 'C:\Users\<user>\AppData\Local\Programs\Python\Python312\python.exe' '.\pm_reports\report_builder.py' --report-type weekly --project '<project-display-name>' --project-key '<project-key>' --project-config '%APPDATA%\SensoneoAI\project_report_config.json' --live-jira --output '.\outputs\reports\weekly\weekly_project_status_YYYY-MM-DD.md'
+& 'C:\Users\<user>\AppData\Local\Programs\Python\Python312\python.exe' '.\pm_reports\report_builder.py' --report-type weekly --project '<project-display-name>' --project-key '<project-key>' --project-config '%APPDATA%\AIPMAssistant\project_report_config.json' --live-jira --output '.\outputs\reports\weekly\weekly_project_status_YYYY-MM-DD.md'
 ```
 
 ## Notes

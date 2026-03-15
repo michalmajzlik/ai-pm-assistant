@@ -1,6 +1,6 @@
-﻿param(
+param(
     [string]$EnvFile,
-    [string]$SecretFile = "$env:APPDATA\AIPMAssistant\jira_secret.xml",
+    [string]$SecretFile,
     [string]$PythonExe,
     [string]$ServerScript
 )
@@ -9,6 +9,13 @@ $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $EnvFile) { $EnvFile = Join-Path $scriptRoot '.env' }
 if (-not $ServerScript) { $ServerScript = Join-Path $scriptRoot 'server.py' }
+if (-not $SecretFile) {
+    $primarySecret = Join-Path $env:APPDATA 'AIPMAssistant\jira_secret.xml'
+    $legacySecret = Join-Path $env:APPDATA 'SensoneoAI\jira_secret.xml'
+    if (Test-Path $primarySecret) { $SecretFile = $primarySecret }
+    elseif (Test-Path $legacySecret) { $SecretFile = $legacySecret }
+    else { $SecretFile = $primarySecret }
+}
 
 function Resolve-Python {
     $candidates = @(
@@ -52,6 +59,7 @@ if (-not $PythonExe -or -not (Test-Path $PythonExe)) { throw "Python not found. 
 if (-not (Test-Path $ServerScript)) { throw "Server script not found: $ServerScript" }
 
 & $PythonExe $ServerScript
+
 
 
 

@@ -6,13 +6,35 @@ param(
     [string]$Project,
     [string]$ProjectKey,
     [string]$OutputPath,
-    [string]$SecretFile = "$env:APPDATA\SensoneoAI\jira_secret.xml",
-    [string]$ProjectConfigFile = "$env:APPDATA\SensoneoAI\project_report_config.json"
+    [string]$SecretFile,
+    [string]$ProjectConfigFile
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $root
+
+function Resolve-RuntimeFile {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$RelativePath
+    )
+
+    $primary = Join-Path (Join-Path $env:APPDATA 'AIPMAssistant') $RelativePath
+    $legacy = Join-Path (Join-Path $env:APPDATA 'SensoneoAI') $RelativePath
+    if ((Test-Path $primary) -and (Test-Path $legacy)) {
+        $primaryItem = Get-Item $primary
+        $legacyItem = Get-Item $legacy
+        if ($primaryItem.LastWriteTimeUtc -ge $legacyItem.LastWriteTimeUtc) { return $primary }
+        return $legacy
+    }
+    if (Test-Path $primary) { return $primary }
+    if (Test-Path $legacy) { return $legacy }
+    return $primary
+}
+
+if (-not $SecretFile) { $SecretFile = Resolve-RuntimeFile 'jira_secret.xml' }
+if (-not $ProjectConfigFile) { $ProjectConfigFile = Resolve-RuntimeFile 'project_report_config.json' }
 
 function Resolve-Python {
     $candidates = @(
@@ -72,29 +94,32 @@ if (-not $python) {
 
 $emailArgs = @()
 if ($ReportType -eq 'weekly') {
-    $m365Token = Join-Path $env:APPDATA 'SensoneoAI\m365_token.json'
-    $emailDigestPath = Join-Path $env:APPDATA 'SensoneoAI\cache\outlook_weekly_digest.json'
+    $m365Token = Resolve-RuntimeFile 'm365_token.json'
+    $emailDigestPath = Resolve-RuntimeFile 'cache\outlook_weekly_digest.json'
     if (Test-Path $m365Token) {
-        try {
-            & $python (Join-Path $root 'outlook_digest.py') --days 7 --output $emailDigestPath | Out-Host
-            if (Test-Path $emailDigestPath) {
-                $emailArgs = @('--emails', $emailDigestPath)
-            }
-        }
-        catch {
-            Write-Warning "Outlook digest generation failed. Weekly report will continue without Outlook signals. $($_.Exception.Message)"
+        $stdoutFile = Join-Path $env:TEMP 'outlook_digest_stdout.log'
+        $stderrFile = Join-Path $env:TEMP 'outlook_digest_stderr.log'
+        if (Test-Path $stdoutFile) { Remove-Item -Force $stdoutFile }
+        if (Test-Path $stderrFile) { Remove-Item -Force $stderrFile }
+        $proc = Start-Process -FilePath $python -ArgumentList @((Join-Path $root 'outlook_digest.py'), '--days', '7', '--output', $emailDigestPath) -Wait -NoNewWindow -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        if ($proc.ExitCode -eq 0 -and (Test-Path $emailDigestPath)) {
+            if (Test-Path $stdoutFile) { Get-Content -Path $stdoutFile | Out-Host }
+            $emailArgs = @('--emails', $emailDigestPath)
+        } elseif ($proc.ExitCode -ne 0) {
+            Write-Warning "Outlook digest generation failed. Weekly report will continue without Outlook signals."
         }
     }
 }
 
 & $python (Join-Path $root 'report_builder.py') --report-type $ReportType --project $Project --project-key $ProjectKey --project-config $ProjectConfigFile --live-jira --output $OutputPath @emailArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "Report generation failed with exit code $LASTEXITCODE."
+}
 Write-Host "Generated: $OutputPath"
 
 if ($ReportType -eq 'weekly') {
-    try {
-        & $python (Join-Path $root 'publish_report_to_jira.py') --report-type $ReportType --report-file $OutputPath --project-config $ProjectConfigFile | Out-Host
-    }
-    catch {
-        Write-Warning "Weekly Jira status publish failed. Report file was generated, but Jira issue was not updated. $($_.Exception.Message)"
+    & $python (Join-Path $root 'publish_report_to_jira.py') --report-type $ReportType --report-file $OutputPath --project-config $ProjectConfigFile | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Weekly Jira status publish failed. Report file was generated, but Jira issue was not updated."
     }
 }

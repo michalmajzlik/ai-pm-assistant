@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from project_config import get_publish_settings, load_project_config
+from runtime_paths import resolve_runtime_file
 
-DEFAULT_PROJECT_CONFIG_PATH = Path(os.getenv("APPDATA", "")) / "SensoneoAI" / "project_report_config.json"
+DEFAULT_PROJECT_CONFIG_PATH = resolve_runtime_file("project_report_config.json")
 DEFAULT_PROJECT_STATUS_FIELD_MAPPING = {
     "rag_overall": "customfield_10272",
     "rag_timeline": "customfield_10273",

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -14,14 +14,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-APPDATA = os.getenv("APPDATA", "")
-RUNTIME_DIR = Path(APPDATA) / "SensoneoAI"
-CONFIG_PATH = RUNTIME_DIR / "m365_config.json"
-TOKEN_PATH = RUNTIME_DIR / "m365_token.json"
-CACHE_DIR = RUNTIME_DIR / "cache"
-DEFAULT_OUTPUT = CACHE_DIR / "outlook_weekly_digest.json"
-INTERNAL_DOMAINS = {"sensoneo.com"}
-EXCLUDED_EXTERNAL_ADDRESSES = {"jira@sensoneosk.atlassian.net"}
+from runtime_paths import resolve_runtime_dir, resolve_runtime_file
+
+CONFIG_PATH = resolve_runtime_file("m365_config.json")
+TOKEN_PATH = resolve_runtime_file("m365_token.json")
+DEFAULT_OUTPUT = resolve_runtime_file("cache", "outlook_weekly_digest.json")
+RUNTIME_DIR = DEFAULT_OUTPUT.parent.parent
 NOISY_SUBJECT_PREFIXES = ("accepted:", "declined:", "tentative:", "canceled:")
 ESCALATION_KEYWORDS = {
     "issue",
@@ -37,6 +35,11 @@ ESCALATION_KEYWORDS = {
     "escalat",
     "deadline",
 }
+
+
+def load_runtime_config() -> dict[str, Any]:
+    data = load_json(CONFIG_PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -58,7 +61,7 @@ def oauth_post(url: str, data: dict[str, str]) -> dict[str, Any]:
 
 
 def load_config() -> dict[str, str]:
-    data = load_json(CONFIG_PATH)
+    data = load_runtime_config()
     return {
         "client_id": str(data.get("client_id", "")).strip(),
         "tenant_id": str(data.get("tenant_id", "")).strip(),
@@ -134,9 +137,53 @@ def parse_dt(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def is_external(address: str) -> bool:
+def default_internal_domains(messages: list[dict[str, Any]]) -> set[str]:
+    domains: set[str] = set()
+    for message in messages:
+        if message.get("folder") != "sentitems":
+            continue
+        sender = message.get("from") or {}
+        address = str(sender.get("address", "")).strip().lower()
+        if "@" in address:
+            domains.add(address.split("@", 1)[1])
+    return domains
+
+
+def load_internal_domains(messages: list[dict[str, Any]]) -> set[str]:
+    config = load_runtime_config()
+    domains = config.get("internal_domains", [])
+    if isinstance(domains, list):
+        normalized = {str(item).strip().lower() for item in domains if str(item).strip()}
+        if normalized:
+            return normalized
+    return default_internal_domains(messages)
+
+
+def load_excluded_addresses() -> set[str]:
+    config = load_runtime_config()
+    addresses = config.get("excluded_external_addresses", [])
+    if isinstance(addresses, list):
+        return {str(item).strip().lower() for item in addresses if str(item).strip()}
+    return set()
+
+
+def is_noise_sender(address: str, excluded_addresses: set[str]) -> bool:
+    normalized = address.strip().lower()
+    if not normalized:
+        return False
+    if normalized in excluded_addresses:
+        return True
+    local_part, _, domain = normalized.partition("@")
+    if local_part in {"jira", "noreply", "no-reply", "notification", "notifications"}:
+        return True
+    if "atlassian.net" in domain and local_part in {"jira", "noreply", "no-reply"}:
+        return True
+    return False
+
+
+def is_external(address: str, internal_domains: set[str]) -> bool:
     domain = address.split("@")[-1].lower() if "@" in address else ""
-    return bool(domain) and domain not in INTERNAL_DOMAINS
+    return bool(domain) and domain not in internal_domains
 
 
 def fetch_folder_messages(folder: str, dt_field: str, since_iso: str, top: int = 80) -> list[dict[str, Any]]:
@@ -177,23 +224,28 @@ def message_keywords(message: dict[str, Any]) -> list[str]:
     return sorted(keyword for keyword in ESCALATION_KEYWORDS if keyword in haystack)
 
 
-def external_participants(message: dict[str, Any]) -> list[str]:
+def external_participants(message: dict[str, Any], internal_domains: set[str], excluded_addresses: set[str]) -> list[str]:
     participants = []
     for bucket in [message.get("from") or {}, *(message.get("to") or []), *(message.get("cc") or [])]:
         address = str(bucket.get("address", "")).strip().lower()
-        if address and is_external(address) and address not in EXCLUDED_EXTERNAL_ADDRESSES:
+        if address and is_external(address, internal_domains) and not is_noise_sender(address, excluded_addresses):
             participants.append(address)
     return sorted(set(participants))
 
 
-def build_escalations(messages: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+def build_escalations(
+    messages: list[dict[str, Any]],
+    internal_domains: set[str],
+    excluded_addresses: set[str],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
     candidates = []
     for message in messages:
         if message.get("folder") != "inbox":
             continue
-        externals = external_participants(message)
+        externals = external_participants(message, internal_domains, excluded_addresses)
         sender_addr = str((message.get("from") or {}).get("address", "")).strip().lower()
-        if sender_addr in EXCLUDED_EXTERNAL_ADDRESSES:
+        if is_noise_sender(sender_addr, excluded_addresses):
             continue
         if not externals:
             continue
@@ -225,12 +277,17 @@ def build_escalations(messages: list[dict[str, Any]], limit: int = 3) -> list[di
     return out
 
 
-def build_active_threads(messages: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+def build_active_threads(
+    messages: list[dict[str, Any]],
+    internal_domains: set[str],
+    excluded_addresses: set[str],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
     threads: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for message in messages:
         if not message.get("conversationId"):
             continue
-        if not external_participants(message):
+        if not external_participants(message, internal_domains, excluded_addresses):
             continue
         if str(message.get("subject", "")).strip().lower().startswith(NOISY_SUBJECT_PREFIXES):
             continue
@@ -241,7 +298,7 @@ def build_active_threads(messages: list[dict[str, Any]], limit: int = 3) -> list
         items.sort(key=lambda entry: parse_dt(entry["timestamp"]))
         if len(items) < 2:
             continue
-        participants = sorted({addr for item in items for addr in external_participants(item)})
+        participants = sorted({addr for item in items for addr in external_participants(item, internal_domains, excluded_addresses)})
         ranked.append(
             {
                 "conversationId": conversation_id,
@@ -261,29 +318,36 @@ def main() -> int:
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
+    try:
+        days = max(1, min(args.days, 30))
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since_iso = since.isoformat().replace("+00:00", "Z")
 
-    days = max(1, min(args.days, 30))
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    since_iso = since.isoformat().replace("+00:00", "Z")
+        inbox = fetch_folder_messages("inbox", "receivedDateTime", since_iso)
+        sent = fetch_folder_messages("sentitems", "sentDateTime", since_iso)
+        all_messages = sorted(inbox + sent, key=lambda item: item["timestamp"], reverse=True)
+        internal_domains = load_internal_domains(all_messages)
+        excluded_addresses = load_excluded_addresses()
 
-    inbox = fetch_folder_messages("inbox", "receivedDateTime", since_iso)
-    sent = fetch_folder_messages("sentitems", "sentDateTime", since_iso)
-    all_messages = sorted(inbox + sent, key=lambda item: item["timestamp"], reverse=True)
-
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "window_days": days,
-        "email_counts": {
-            "inbox": len(inbox),
-            "sent": len(sent),
-            "total": len(all_messages),
-        },
-        "escalations": build_escalations(all_messages),
-        "active_threads": build_active_threads(all_messages),
-    }
-    save_json(args.output, payload)
-    print(f"OK: {args.output}")
-    return 0
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "window_days": days,
+            "runtime_dir": str(RUNTIME_DIR),
+            "internal_domains": sorted(internal_domains),
+            "email_counts": {
+                "inbox": len(inbox),
+                "sent": len(sent),
+                "total": len(all_messages),
+            },
+            "escalations": build_escalations(all_messages, internal_domains, excluded_addresses),
+            "active_threads": build_active_threads(all_messages, internal_domains, excluded_addresses),
+        }
+        save_json(args.output, payload)
+        print(f"OK: {args.output}")
+        return 0
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
