@@ -70,5 +70,22 @@ if (-not $python) {
     throw "Python not found. Install Python 3.10+ or ensure python.exe is available in PATH."
 }
 
-& $python (Join-Path $root 'report_builder.py') --report-type $ReportType --project $Project --project-key $ProjectKey --project-config $ProjectConfigFile --live-jira --output $OutputPath
+$emailArgs = @()
+if ($ReportType -eq 'weekly') {
+    $m365Token = Join-Path $env:APPDATA 'SensoneoAI\m365_token.json'
+    $emailDigestPath = Join-Path $env:APPDATA 'SensoneoAI\cache\outlook_weekly_digest.json'
+    if (Test-Path $m365Token) {
+        try {
+            & $python (Join-Path $root 'outlook_digest.py') --days 7 --output $emailDigestPath | Out-Host
+            if (Test-Path $emailDigestPath) {
+                $emailArgs = @('--emails', $emailDigestPath)
+            }
+        }
+        catch {
+            Write-Warning "Outlook digest generation failed. Weekly report will continue without Outlook signals. $($_.Exception.Message)"
+        }
+    }
+}
+
+& $python (Join-Path $root 'report_builder.py') --report-type $ReportType --project $Project --project-key $ProjectKey --project-config $ProjectConfigFile --live-jira --output $OutputPath @emailArgs
 Write-Host "Generated: $OutputPath"

@@ -442,6 +442,30 @@ def prep_scope_count(issues: list[dict[str, Any]]) -> int:
     return sum(1 for issue in issues if str(issue.get("status", "")).lower() in prep_statuses)
 
 
+def render_client_signal(emails: dict[str, Any]) -> list[str]:
+    if not isinstance(emails, dict):
+        return []
+    lines: list[str] = []
+    escalations = emails.get("escalations", []) if isinstance(emails.get("escalations"), list) else []
+    active_threads = emails.get("active_threads", []) if isinstance(emails.get("active_threads"), list) else []
+
+    for item in escalations[:3]:
+        subject = item.get("subject", "(no subject)")
+        sender = item.get("from_name") or item.get("from_email") or "Unknown sender"
+        reasons = ", ".join(item.get("reasons", [])) if isinstance(item.get("reasons"), list) else "signal detected"
+        lines.append(f"- Escalation: {subject} | from {sender} | signal: {reasons}")
+
+    for item in active_threads[:3]:
+        if item.get("message_count", 0) < 2:
+            continue
+        participants = ", ".join(item.get("participants", [])[:3]) if isinstance(item.get("participants"), list) else "external participants"
+        lines.append(
+            f"- Active thread: {item.get('subject', '(no subject)')} | {item.get('message_count', 0)} messages this week | participants: {participants}"
+        )
+
+    return lines
+
+
 def render_weekly_status_section(
     section_cfg: dict[str, Any],
     issues: list[dict[str, Any]],
@@ -605,6 +629,10 @@ def build_report(
             status_lines.extend([section_name, "", *lines, ""])
         parts.append(section(get_section_title(report_settings, "current_project_status", "Current Project Status"), "\n".join(status_lines).strip()))
 
+        client_signal_lines = render_client_signal(emails)
+        if client_signal_lines:
+            parts.append(section(get_section_title(report_settings, "client_signal", "Client signal"), "\n".join(client_signal_lines)))
+
         next_step_lines = []
         for action in meeting_actions[:5]:
             next_step_lines.append(f"- {action.get('action', 'Unknown action')} (owner: {action.get('owner', 'Unknown')})")
@@ -628,7 +656,12 @@ def build_report(
         parts.append(section(get_section_title(report_settings, "next_period_priorities", "Next period priorities"), "- Stabilize release-critical scope.\n- Reduce dependency risk."))
 
     parts.append(section(get_section_title(report_settings, "data_quality_issues", "Data quality issues"), data_quality_issues(issues)))
-    parts.append(section(get_section_title(report_settings, "source_notes", "Source notes"), f"Meetings input items: {len(meeting_records)}; calendar input items: {len(calendar.get('items', [])) if isinstance(calendar.get('items'), list) else 0}; email input items: {len(emails.get('items', [])) if isinstance(emails.get('items'), list) else 0}."))
+    email_count = 0
+    if isinstance(emails.get("items"), list):
+        email_count = len(emails.get("items", []))
+    elif isinstance(emails.get("email_counts"), dict):
+        email_count = int(emails.get("email_counts", {}).get("total", 0))
+    parts.append(section(get_section_title(report_settings, "source_notes", "Source notes"), f"Meetings input items: {len(meeting_records)}; calendar input items: {len(calendar.get('items', [])) if isinstance(calendar.get('items'), list) else 0}; email input items: {email_count}."))
     return "\n".join(parts)
 
 

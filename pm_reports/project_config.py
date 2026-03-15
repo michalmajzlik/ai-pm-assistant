@@ -60,6 +60,7 @@ DEFAULT_PROJECT_CONFIG = {
                 "key_details": "Key details",
                 "current_project_status": "Current Project Status",
                 "project_next_steps": "Project Next Steps",
+                "client_signal": "Client signal",
                 "data_quality_issues": "Data quality issues",
                 "source_notes": "Source notes",
             },
